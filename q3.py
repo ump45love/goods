@@ -3,7 +3,7 @@ import bmesh
 from mathutils import Vector
 
 # 이미지 경로 설정
-image_path = "C:/Users/lovec/Desktop/굿즈/q.png"
+image_path = "C:/Users/lovec/Desktop/goods/q.png"
 
 # 좌표 불러오기
 coords = []

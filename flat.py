@@ -3,7 +3,7 @@ from mathutils import Vector
 import bmesh
 
 # ===== 기본 세팅 =====
-image_path = "C:/Users/lovec/Desktop/굿즈/q.png"
+image_path = "C:/Users/lovec/Desktop/goods/q.png"
 fbx_path   = "C:/Users/lovec/Desktop/export.fbx"
 
 # 기존 큐브 삭제 (있으면)
@@ -81,15 +81,15 @@ obj_bot.data = obj_mid.data.copy()
 obj_bot.name = "PNGContour_BOT"
 bpy.context.collection.objects.link(obj_bot)
 
-scale_factor = 1.1
+#scale_factor = 1.1
 
-for obj in [obj_top, obj_bot]:
-    obj.scale = (obj.scale[0] * scale_factor,
-                 obj.scale[1] * scale_factor,
-                 obj.scale[2] * scale_factor)
+#for obj in [obj_top, obj_bot]:
+#    obj.scale = (obj.scale[0] * scale_factor,
+#                 obj.scale[1] * scale_factor,
+#                 obj.scale[2] * scale_factor)
 
 # Z 오프셋 (두께 느낌)
-thickness = 0.02  # 필요하면 바꿔라
+thickness = 0.07
 obj_top.location.z =  thickness
 obj_bot.location.z = -thickness
 
