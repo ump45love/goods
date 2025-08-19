@@ -1,7 +1,30 @@
 import bpy
 from mathutils import Vector
 import bmesh
+def make_pipe(name="Pipe",height=0.5, outer_radius=0.2, inner_radius=0.1,  location=(0,0,0)):
+    import bpy
+    # 바깥 원통
+    bpy.ops.mesh.primitive_cylinder_add(radius=outer_radius, depth=height, location=location)
+    outer = bpy.context.active_object
+    outer.name = name + "_outer"
 
+    # 안쪽 원통
+    bpy.ops.mesh.primitive_cylinder_add(radius=inner_radius, depth=height+0.01, location=location)
+    inner = bpy.context.active_object
+    inner.name = name + "_inner"
+
+    # Boolean 차집합
+    bool_mod = outer.modifiers.new(name="BoolHole", type='BOOLEAN')
+    bool_mod.object = inner
+    bool_mod.operation = 'DIFFERENCE'
+    bpy.context.view_layer.objects.active = outer
+    bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+
+    # 안쪽 원통 삭제
+    bpy.data.objects.remove(inner, do_unlink=True)
+
+    outer.name = name
+    return outer
 # ===== 기본 세팅 =====
 image_path = "C:/Users/lovec/Desktop/goods/q.png"
 fbx_path   = "C:/Users/lovec/Desktop/export.fbx"
@@ -80,17 +103,25 @@ obj_bot = obj_mid.copy()
 obj_bot.data = obj_mid.data.copy()
 obj_bot.name = "PNGContour_BOT"
 bpy.context.collection.objects.link(obj_bot)
+# --- 중앙(obj_mid) 위치 기준으로 정렬 ---
+# (스케일하면서 중앙이 틀어질 수 있으므로 중앙 오브젝트 위치에 맞춤)
+scale_factor = 1.05
 
-#scale_factor = 1.1
+initial_dims = obj_top.dimensions.copy()
+for obj in (obj_top, obj_bot):
+    obj.scale = (obj.scale[0] * scale_factor,
+                 obj.scale[1] * scale_factor,
+                 obj.scale[2] * scale_factor)
+bpy.context.view_layer.update()
+final_dims = obj_top.dimensions.copy()
+diff = final_dims - initial_dims
+offset = diff /2
 
-#for obj in [obj_top, obj_bot]:
-#    obj.scale = (obj.scale[0] * scale_factor,
-#                 obj.scale[1] * scale_factor,
-#                 obj.scale[2] * scale_factor)
+obj_mid.location += offset
 
-# Z 오프셋 (두께 느낌)
+# --- Z 오프셋 (두께 느낌) ---
 thickness = 0.07
-obj_top.location.z =  thickness
+obj_top.location.z = thickness
 obj_bot.location.z = -thickness
 
 # 위/아래 판은 흰 반투명만 쓸 거라 재질 교체
@@ -98,66 +129,85 @@ for o in (obj_top, obj_bot):
     o.data.materials.clear()
     o.data.materials.append(mat_white)
 
-# ===== 6) 세 오브젝트 합치기 (Join) =====
+# ===== 6) 위/아래 판만 합치기 =====
 bpy.ops.object.select_all(action='DESELECT')
-obj_mid.select_set(True)
 obj_top.select_set(True)
 obj_bot.select_set(True)
+bpy.context.view_layer.objects.active = obj_top
+bpy.ops.object.join()
+joined_tb = bpy.context.active_object
+joined_tb.name = "PNGContour_TOPBOT"
+
+# 흰 반투명 재질 강제
+joined_tb.data.materials.clear()
+joined_tb.data.materials.append(mat_white)
+
+# ===== 7) 사이드(옆면) 생성: 위/아래 브리지 =====
+import bmesh
+bm = bmesh.new()
+bm.from_mesh(joined_tb.data)
+
+boundary_edges = [e for e in bm.edges if e.is_boundary]
+bmesh.ops.bridge_loops(bm, edges=boundary_edges)
+
+bm.to_mesh(joined_tb.data)
+bm.free()
+
+# ===== 8) 중앙 PNG + 위/아래+옆면 합치기 =====
+bpy.ops.object.select_all(action='DESELECT')
+obj_mid.select_set(True)
+joined_tb.select_set(True)
 bpy.context.view_layer.objects.active = obj_mid
 bpy.ops.object.join()
 joined = bpy.context.active_object
 joined.name = "PNGContour_JOINED"
 
-# 머티리얼 슬롯 정리: [0]=ImageMaterial, [1]=WhiteMaterial90 로 강제
+# 머티리얼 슬롯 [0]=ImageMaterial, [1]=WhiteMaterial
 joined.data.materials.clear()
 joined.data.materials.append(mat_image)  # slot 0
 joined.data.materials.append(mat_white)  # slot 1
 
-# ===== 7) 사이드(옆면) 생성: 세 장의 경계 브리지 =====
+# ===== 9) 면별로 재질 배정 =====
 bm = bmesh.new()
 bm.from_mesh(joined.data)
 
-# 현재는 겹친 3장의 경계 엣지 루프가 있음 → 전부 브릿지해서 옆면 생성
-boundary_edges = [e for e in bm.edges if e.is_boundary]
-bmesh.ops.bridge_loops(bm, edges=boundary_edges)  # 가운데-위, 가운데-아래 사이드를 생성
-
-bm.to_mesh(joined.data)
-bm.free()
-
-# ===== 8) 면별로 재질 배정 (정중앙=PNG, 옆면+위/아래=흰반투명) =====
-bm = bmesh.new()
-bm.from_mesh(joined.data)
-
-# 세 레벨 Z값 판정용
 z_mid = 0.0
-z_top = thickness
-z_bot = -thickness
-eps  = thickness * 0.25  # 오차 허용
+eps = thickness * 0.25
 
 for f in bm.faces:
-    # 면 중심 높이와 노멀로 판정
     c = f.calc_center_median()
     nz = f.normal.z
 
     if abs(nz) > 0.9:
-        # 수평면(위/아래/가운데 중 하나)
         if abs(c.z - z_mid) <= eps:
-            # 정중앙 면 → PNG
-            f.material_index = 0
+            f.material_index = 0   # 중앙 PNG
         else:
-            # 위/아래 면 → 흰반투명
-            f.material_index = 1
+            f.material_index = 1   # 위/아래 흰반투명
     else:
-        # 수직면(옆면) → 흰반투명
-        f.material_index = 1
+        f.material_index = 1       # 옆면 흰반투명
 
 bm.to_mesh(joined.data)
 bm.free()
+bbox = [joined.matrix_world @ Vector(corner) for corner in joined.bound_box]
+min_z = min(v.z for v in bbox)
+max_z = max(v.z for v in bbox)
+h = max_z - min_z
 
-# ===== 9) 내보내기 (FBX) =====
+pipe = make_pipe(name="ContourPipe",height=h, outer_radius=0.1, inner_radius=0.05)
+
+# joined 모델의 바운딩박스 정보
+bbox = [joined.matrix_world @ Vector(corner) for corner in joined.bound_box]
+min_x = min(v.x for v in bbox)
+max_x = max(v.x for v in bbox)
+min_y = min(v.y for v in bbox)
+max_y = max(v.y for v in bbox)
+max_z = max(v.z for v in bbox)
+
+# ===== 10) 내보내기 (FBX) =====
 bpy.ops.object.select_all(action='DESELECT')
 joined.select_set(True)
+pipe.select_set(True)
 bpy.context.view_layer.objects.active = joined
 bpy.ops.export_scene.fbx(filepath=fbx_path, use_selection=True)
 
-print("DONE: 3판 생성/옆면 생성 및 재질 배정, FBX 내보냄 ->", fbx_path)
+print("DONE: 중앙 고정 + 위아래 1.1배 확대/정렬 + 옆면 생성 + FBX 내보냄 ->", fbx_path)

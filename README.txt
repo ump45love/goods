@@ -1,0 +1,1 @@
+실행:& "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe" --background --python "C:\Users\lovec\Desktop\goods\flat.py"
